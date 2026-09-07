@@ -29,6 +29,8 @@ export interface ScanResult {
     };
     cv_skills_detected: string[];
     matched_skills: string[];
+    matched_types: { [key: string]: string };
+    semantic_matches: { skill: string; similarity: number; match_type: string }[];
     missing_skills: string[];
     ats_checks: {
       text_extractable: boolean;

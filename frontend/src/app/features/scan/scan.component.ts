@@ -362,11 +362,14 @@ import { ApiService, ScanResult } from '../../services/api.service';
                 <mat-card-title>Compétences correspondantes ({{ result.analysis.matched_skills.length }})</mat-card-title>
               </mat-card-header>
               <mat-card-content>
-                <mat-chip-listbox>
-                  <mat-chip *ngFor="let skill of result.analysis.matched_skills" color="primary">
-                    {{ skill }}
-                  </mat-chip>
-                </mat-chip-listbox>
+                <div class="skill-match-list">
+                  <div *ngFor="let skill of result.analysis.matched_skills" class="skill-match-item">
+                    <mat-chip color="primary">{{ skill }}</mat-chip>
+                    <span class="match-badge" [class]="getMatchBadgeClass(skill)">
+                      {{ getMatchTypeLabel(skill) }}
+                    </span>
+                  </div>
+                </div>
               </mat-card-content>
             </mat-card>
 
@@ -781,6 +784,46 @@ import { ApiService, ScanResult } from '../../services/api.service';
       font-style: italic;
       font-size: 0.85rem;
     }
+
+    /* Match Badges */
+    .skill-match-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .skill-match-item {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .match-badge {
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-exact {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .badge-synonym {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+    .badge-related {
+      background: #fff3e0;
+      color: #e65100;
+    }
+    .badge-partial {
+      background: #f3e5f5;
+      color: #7b1fa2;
+    }
+    .badge-semantic {
+      background: #e0f7fa;
+      color: #00695c;
+    }
   `]
 })
 export class ScanComponent implements AfterViewInit {
@@ -920,5 +963,25 @@ export class ScanComponent implements AfterViewInit {
     if (score >= 70) return 'score-high';
     if (score >= 40) return 'score-medium';
     return 'score-low';
+  }
+
+  getMatchTypeLabel(skill: string): string {
+    const type = this.result?.analysis?.matched_types?.[skill] || 'exact';
+    if (type === 'exact') return 'Exact';
+    if (type.startsWith('synonym')) return 'Synonyme';
+    if (type.startsWith('related')) return 'Lié';
+    if (type.startsWith('partial')) return 'Partiel';
+    if (type.startsWith('semantic')) return 'Sémantique';
+    return type;
+  }
+
+  getMatchBadgeClass(skill: string): string {
+    const type = this.result?.analysis?.matched_types?.[skill] || 'exact';
+    if (type === 'exact') return 'badge-exact';
+    if (type.startsWith('synonym')) return 'badge-synonym';
+    if (type.startsWith('related')) return 'badge-related';
+    if (type.startsWith('partial')) return 'badge-partial';
+    if (type.startsWith('semantic')) return 'badge-semantic';
+    return 'badge-exact';
   }
 }

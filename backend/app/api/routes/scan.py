@@ -1,11 +1,44 @@
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from typing import List, Set
+from typing import List, Set, Dict, Tuple
 import io
 import re
 import time
+import json
+import os
 
 router = APIRouter()
+
+# Load synonyms
+SYNONYMS_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "synonyms.json")
+try:
+    with open(SYNONYMS_PATH, "r", encoding="utf-8") as f:
+        SYNONYMS: Dict[str, List[str]] = json.load(f)
+except Exception:
+    SYNONYMS = {}
+
+# Build reverse synonym map: synonym -> canonical skill
+SYNONYM_REVERSE: Dict[str, str] = {}
+for canonical, syns in SYNONYMS.items():
+    for s in syns:
+        SYNONYM_REVERSE[s.lower()] = canonical.lower()
+    SYNONYM_REVERSE[canonical.lower()] = canonical.lower()
+
+
+def normalize_skill(skill: str) -> str:
+    """Normalize a skill to its canonical form"""
+    s = skill.lower().strip()
+    return SYNONYM_REVERSE.get(s, s)
+
+
+def find_related_skills(skill: str, all_skills: List[str]) -> List[str]:
+    """Find skills that are related (share the same canonical form)"""
+    canonical = normalize_skill(skill)
+    related = []
+    for s in all_skills:
+        if normalize_skill(s) == canonical and s.lower() != skill.lower():
+            related.append(s)
+    return related
 
 TECH_SKILLS = [
     "python", "java", "javascript", "typescript", "angular", "react", "vue",
@@ -181,6 +214,56 @@ def match_skill_in_cv(skill: str, cv_text_lower: str) -> bool:
     return bool(re.search(pattern, cv_text_lower))
 
 
+def multi_level_match(skill: str, cv_text_lower: str, cv_skills_detected: List[str]) -> Tuple[bool, str]:
+    """
+    Multi-level matching:
+    1. Exact match
+    2. Synonym match (from synonyms.json)
+    3. Related skill match (same canonical form)
+    4. Partial match (substring)
+    Returns (matched: bool, match_type: str)
+    """
+    skill_lower = skill.lower()
+
+    # Level 1: Exact match
+    if match_skill_in_cv(skill, cv_text_lower):
+        return True, "exact"
+
+    # Level 2: Synonym match
+    canonical = normalize_skill(skill)
+    if canonical != skill_lower:
+        for syn in SYNONYMS.get(canonical, []):
+            if match_skill_in_cv(syn, cv_text_lower):
+                return True, f"synonym({syn})"
+
+    # Level 2b: Check if any synonym of this skill is in the CV
+    for canonical_key, syns in SYNONYMS.items():
+        all_forms = [canonical_key] + syns
+        if skill_lower in [f.lower() for f in all_forms]:
+            for syn in all_forms:
+                if syn.lower() != skill_lower and match_skill_in_cv(syn, cv_text_lower):
+                    return True, f"synonym({syn})"
+
+    # Level 3: Related skill match (same canonical form)
+    for detected in cv_skills_detected:
+        detected_lower = detected.lower()
+        if normalize_skill(detected_lower) == canonical:
+            return True, f"related({detected})"
+        # Also check if detected matches via synonyms
+        detected_canonical = normalize_skill(detected_lower)
+        if detected_canonical == skill_lower:
+            return True, f"related({detected})"
+
+    # Level 4: Partial match (e.g., "react" matches "reactjs")
+    for cv_skill in cv_skills_detected:
+        cv_lower = cv_skill.lower()
+        if skill_lower in cv_lower or cv_lower in skill_lower:
+            if len(min(skill_lower, cv_lower, key=len)) >= 3:
+                return True, f"partial({cv_skill})"
+
+    return False, "none"
+
+
 def extract_personal_info(cv_text: str) -> dict:
     """Extract personal information from CV text"""
     cv_lower = cv_text.lower()
@@ -262,19 +345,96 @@ def extract_personal_info(cv_text: str) -> dict:
     }
 
 
+def semantic_match(job_skills: List[str], cv_text: str, matched_exact: List[str]) -> List[Dict]:
+    """
+    Semantic matching using TF-IDF + cosine similarity.
+    For skills not matched exactly, compute semantic similarity with CV text.
+    """
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.metrics.pairwise import cosine_similarity
+    except ImportError:
+        return []
+
+    unmatched = [s for s in job_skills if s not in matched_exact]
+    if not unmatched or not cv_text.strip():
+        return []
+
+    # Split CV into chunks (paragraphs) for better matching
+    cv_chunks = [chunk.strip() for chunk in re.split(r'\n\s*\n', cv_text) if chunk.strip()]
+    if not cv_chunks:
+        cv_chunks = [cv_text]
+
+    # Add the full CV text as well
+    all_docs = cv_chunks + [cv_text]
+
+    semantic_results = []
+    for skill in unmatched:
+        try:
+            skill_text = skill.lower().replace("_", " ").replace("-", " ")
+            docs = [skill_text] + all_docs
+
+            vectorizer = TfidfVectorizer(stop_words="english", max_features=5000)
+            tfidf_matrix = vectorizer.fit_transform(docs)
+
+            # Compare skill (index 0) with all CV chunks
+            similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:])[0]
+            max_sim = float(similarities.max())
+
+            if max_sim > 0.15:
+                semantic_results.append({
+                    "skill": skill,
+                    "similarity": round(max_sim, 3),
+                    "match_type": "semantic"
+                })
+        except Exception:
+            continue
+
+    return semantic_results
+
+
 def analyze_cv_content(cv_text: str, job_skills: List[str]) -> dict:
     """Analyze CV against job skills"""
     cv_lower = cv_text.lower()
 
-    # Detect ALL skills present in CV
+    # Detect ALL skills present in CV (including synonyms)
     cv_skills_found = []
     for skill in TECH_SKILLS:
         pattern = r'\b' + re.escape(skill).replace(r'\ ', r'\s*') + r'\b'
         if re.search(pattern, cv_lower):
             cv_skills_found.append(skill.upper())
 
-    matched = [s for s in job_skills if match_skill_in_cv(s, cv_lower)]
-    missing = [s for s in job_skills if not match_skill_in_cv(s, cv_lower)]
+    # Also check for synonyms in CV text
+    for canonical, syns in SYNONYMS.items():
+        canonical_upper = canonical.upper()
+        if canonical_upper in [s.upper() for s in cv_skills_found]:
+            continue
+        for syn in syns:
+            pattern = r'\b' + re.escape(syn).replace(r'\ ', r'\s*') + r'\b'
+            if re.search(pattern, cv_lower):
+                cv_skills_found.append(canonical_upper)
+                break
+
+    # Multi-level matching
+    matched = []
+    matched_types = {}
+    missing = []
+    for s in job_skills:
+        is_match, match_type = multi_level_match(s, cv_lower, cv_skills_found)
+        if is_match:
+            matched.append(s)
+            matched_types[s] = match_type
+        else:
+            missing.append(s)
+
+    # Semantic matching for remaining unmatched skills
+    semantic_results = semantic_match(job_skills, cv_text, matched)
+    semantic_matched = []
+    for sr in semantic_results:
+        if sr["skill"] not in matched:
+            matched.append(sr["skill"])
+            matched_types[sr["skill"]] = f"semantic({sr['similarity']})"
+            semantic_matched.append(sr)
 
     skill_score = round((len(matched) / len(job_skills)) * 100) if job_skills else 0
 
@@ -306,6 +466,9 @@ def analyze_cv_content(cv_text: str, job_skills: List[str]) -> dict:
     }
     ats_score = round(sum(ats_checks.values()) / len(ats_checks) * 100)
 
+    # Final missing list (after all matching levels)
+    final_missing = [s for s in job_skills if s not in matched]
+
     global_score = round(skill_score * 0.5 + exp_score * 0.2 + edu_score * 0.1 + ats_score * 0.2)
 
     recommendations = []
@@ -315,8 +478,8 @@ def analyze_cv_content(cv_text: str, job_skills: List[str]) -> dict:
         recommendations.append("Ajoutez votre telephone")
     if not ats_checks["has_sections"]:
         recommendations.append("Structurez votre CV avec des sections")
-    if missing:
-        recommendations.append(f"Competences manquantes : {', '.join(missing[:3])}")
+    if final_missing:
+        recommendations.append(f"Competences manquantes : {', '.join(final_missing[:5])}")
 
     personal_info = extract_personal_info(cv_text)
 
@@ -326,7 +489,9 @@ def analyze_cv_content(cv_text: str, job_skills: List[str]) -> dict:
         "personal_info": personal_info,
         "cv_skills_detected": cv_skills_found,
         "matched_skills": matched,
-        "missing_skills": missing,
+        "matched_types": matched_types,
+        "semantic_matches": semantic_matched,
+        "missing_skills": final_missing,
         "ats_checks": ats_checks,
         "experience_years": years,
         "education_found": edu_found,
