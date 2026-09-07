@@ -76,13 +76,26 @@ ats-cv-analyzer/
 
 ## Fonctionnalités
 
+### Core
 - [x] Upload PDF/DOCX
-- [x] Extraction de texte
-- [ ] OCR pour documents scannés
+- [x] Extraction de texte (pypdf, python-docx)
+- [x] OCR pour documents scannés (Tesseract)
 - [ ] Détection des sections du CV
-- [ ] Extraction des compétences
-- [ ] Analyse de l'offre d'emploi
-- [ ] Matching multi-niveaux
-- [ ] Analyse sémantique
-- [ ] Système de scoring
-- [ ] Interface de résultats
+- [x] Extraction des compétences (~250 skills tech)
+- [x] Analyse de l'offre d'emploi
+- [x] Matching multi-niveaux (exact → synonymes → lié → partiel)
+- [x] Analyse sémantique (TF-IDF + cosine similarity)
+- [x] Système de scoring (skills 50% + exp 20% + formation 10% + ATS 20%)
+
+### Interface
+- [x] Interface de résultats (score, skills, recommandations)
+- [x] Éditeur riche (contenteditable, formatage préservé au collage)
+- [x] Informations personnelles extraites (nom, email, tel, LinkedIn, GitHub...)
+- [x] Badges colorés par type de match (exact/synonyme/lié/partiel/sémantique)
+- [x] Vérifications ATS (email, téléphone, sections, texte extractible)
+- [x] Modèles d'offres prédéfinis (Support IT, Dev, DevOps, Data)
+
+### DevOps
+- [x] Launchers (launch.sh, launch_frontend.sh, launch_backend.sh)
+- [x] VS Code launch.json (Angular + FastAPI)
+- [x] Docker Compose (Angular, FastAPI, PostgreSQL)
