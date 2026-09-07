@@ -1,0 +1,104 @@
+{
+  "info": {
+    "name": "ATS CV Analyzer API",
+    "description": "API pour analyser des CVs contre des offres d'emploi",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health",
+        "header": []
+      },
+      "response": []
+    },
+    {
+      "name": "Scan CV",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response has analysis', function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('analysis');",
+              "    pm.expect(jsonData.analysis).to.have.property('global_score');",
+              "    pm.expect(jsonData.analysis).to.have.property('matched_skills');",
+              "    pm.expect(jsonData.analysis).to.have.property('missing_skills');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/scan",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": []
+            },
+            {
+              "key": "job_offer",
+              "value": "## Développeur Full Stack\n\n### Compétences requises\n- Python\n- JavaScript\n- React\n- Node.js\n- PostgreSQL\n- Git\n- Docker\n\n### Missions\n- Développement d'applications web\n- Maintenance du code existant\n- Participation aux revues de code\n- Travail en équipe Agile",
+              "type": "text"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Scan CV - Exemple avec erreur",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 400 for invalid file', function () {",
+              "    pm.response.to.have.status(400);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/scan",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": []
+            },
+            {
+              "key": "job_offer",
+              "value": "Offre test",
+              "type": "text"
+            }
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
